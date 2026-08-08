@@ -1,0 +1,2190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>rp-agent</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+    background: #17191c; color: #d8dee8;
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; height: 100vh;
+    overflow: hidden;
+}
+header {
+    background: #0f1113; border-bottom: 1px solid #2a2d33;
+    padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+}
+header h1 { font-size: 15px; color: #e8edf4; font-weight: 600; }
+header .meta { color: #8b93a1; font-size: 12px; }
+header .spacer { flex: 1; }
+header button {
+    background: none; border: 1px solid #3a3f47; color: #9aa3b2;
+    border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+}
+header button:hover { color: #e8edf4; border-color: #6b7686; }
+#chatShell {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    width: min(var(--chatWidth, 960px), 100%);
+    margin: 0 auto; position: relative;
+}
+#chatResize {
+    position: absolute; top: 0; bottom: 0; right: -5px; width: 10px;
+    cursor: ew-resize; z-index: 50;
+}
+#chatResize:hover, #chatResize.dragging { background: rgba(107,154,216,0.25); }
+#messages { flex: 1; overflow-y: auto; padding: 12px 12px 40px; scroll-behavior: smooth; }
+/* SillyTavern 风格：整行消息 + 头部名字/时间 + 悬停图标按钮 */
+.msg.mes {
+    display: flex; align-items: flex-start; padding: 8px 12px;
+    border-radius: 8px; transition: background 0.12s;
+}
+.msg.mes:hover { background: rgba(255,255,255,0.035); }
+.msg.mes .mes_block { flex: 1; min-width: 0; max-width: 82%; }
+.msg.mes.user { justify-content: flex-end; background: transparent; }
+.msg.mes.user .mes_block {
+    background: rgba(43,58,85,0.16); border-radius: 10px; padding: 6px 12px;
+}
+.msg.mes.user:hover .mes_block { background: rgba(43,58,85,0.26); }
+.msg.mes .ch_name {
+    display: flex; justify-content: space-between; align-items: center;
+    min-height: 22px; gap: 8px;
+}
+.msg.mes .name-wrap { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.msg.mes .name_text {
+    font-size: 12px; font-weight: 600; color: #9ab86a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.msg.mes.user .name_text { color: #6b9ad8; }
+.msg.mes.ooc .name_text { color: #7a9a7a; }
+.msg.mes .timestamp { font-size: 11px; color: #6b7686; white-space: nowrap; }
+.msg.mes .mes_buttons {
+    display: flex; gap: 2px; opacity: 0; transition: opacity 0.12s; flex-shrink: 0;
+}
+.msg.mes:hover .mes_buttons { opacity: 1; }
+.msg.mes .mes_button {
+    background: none; border: none; color: #9aa3b2; font-size: 12px;
+    padding: 2px 5px; border-radius: 4px; cursor: pointer; opacity: 0.55; line-height: 1;
+}
+.msg.mes .mes_button:hover { color: #e8edf4; background: rgba(255,255,255,0.08); opacity: 1; }
+.msg.mes .mes_text {
+    padding: 2px 0 8px; line-height: 1.65; white-space: pre-wrap;
+    word-break: break-word; font-size: 14px; color: #d8dee8;
+}
+.thinking { color: #7a8494; font-size: 12px; margin: 0 0 4px; cursor: pointer; user-select: none; }
+.thinking:hover { color: #9aa3b2; }
+.thinking-body {
+    color: #8b93a1; font-size: 12px; line-height: 1.5; white-space: pre-wrap;
+    display: none; background: #1c1f24; border-radius: 8px; padding: 8px 10px; margin-bottom: 6px;
+}
+.versions { margin-top: 6px; font-size: 12px; color: #6b7686; cursor: pointer; user-select: none; }
+.versions:hover { color: #9aa3b2; }
+.version { border-top: 1px solid #33373d; padding: 6px 0; }
+.version .v-head { color: #9aa3b2; cursor: pointer; font-size: 12px; }
+.version .v-body { display: none; white-space: pre-wrap; color: #8b93a1; line-height: 1.5; font-size: 12px; padding: 4px 0; }
+.trace-head {
+    font-size: 12px; color: #8a9a7a; margin: 6px 0 2px; cursor: pointer; user-select: none;
+}
+.trace-head:hover { color: #a8b89a; }
+.trace-body {
+    display: none; background: #1c1f24; border-radius: 8px;
+    padding: 8px 10px; margin-bottom: 6px; max-height: 300px; overflow-y: auto;
+}
+.trace-round { border-top: 1px solid #2a2d33; padding: 6px 0; }
+.trace-round:first-child { border-top: none; }
+.trace-call { color: #9ab86a; font-size: 12px; word-break: break-all; }
+.trace-thinking { color: #7a8494; font-size: 12px; margin-top: 4px; cursor: pointer; user-select: none; }
+.trace-thinking-body { display: none; color: #8b93a1; font-size: 12px; white-space: pre-wrap; line-height: 1.5; }
+.trace-result { color: #8b93a1; font-size: 12px; margin-top: 4px; white-space: pre-wrap; }
+/* 全局错误提示条 */
+#errBar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+    background: #552b2b; color: #ffd8d8; font-size: 12px;
+    padding: 6px 16px; display: none; line-height: 1.5;
+    border-bottom: 1px solid #7a3a3a;
+}
+#errBar button {
+    background: none; border: 1px solid #8a5a5a; color: #ffd8d8;
+    border-radius: 4px; margin-left: 8px; cursor: pointer; font-size: 11px;
+}
+/* 概念原型徽标 */
+.proto-badge {
+    background: #3a2b2b; color: #d8a0a0; border: 1px solid #5a3a3a;
+    border-radius: 4px; padding: 1px 8px; font-size: 11px; margin-left: 8px;
+    user-select: none; white-space: nowrap;
+}
+/* Agent 说明条 */
+#agentHint {
+    background: #1a1d10; border-top: 1px solid #2e3a1e; border-bottom: 1px solid #2e3a1e;
+    padding: 8px 16px; font-size: 12px; color: #aab89a; flex-shrink: 0;
+    display: none; line-height: 1.6;
+}
+#agentHint .hint-summary { color: #c8d8a8; }
+#agentHint .hint-toggle {
+    color: #9ab86a; cursor: pointer; margin-left: 8px; user-select: none;
+    text-decoration: underline dotted;
+}
+#agentHint .hint-toggle:hover { color: #c8e8a0; }
+#agentHint .hint-detail { display: none; margin-top: 6px; color: #8b93a1; }
+#agentHint .hint-detail .tool-item { padding: 2px 0; }
+#agentHint .hint-detail code {
+    background: #24271c; border-radius: 4px; padding: 1px 6px;
+    color: #9ab86a; font-size: 11px; font-family: Consolas, monospace;
+}
+.stats-bar {
+    font-size: 11px; color: #6b7686; margin-top: 5px;
+    display: flex; gap: 10px; align-items: center; user-select: none;
+}
+.tool-note { color: #7a8b6f; font-size: 12px; margin: 4px 0; background: #1c1f24; border-radius: 6px; padding: 4px 8px; }
+#inputbar {
+    border-top: 1px solid #2a2d33; padding: 12px 16px; display: flex; gap: 10px;
+    background: #0f1113; flex-shrink: 0; align-items: flex-end;
+}
+#input {
+    flex: 1; background: #1c1f24; border: 1px solid #2e3239; color: #d8dee8;
+    border-radius: 10px; padding: 10px 14px; font-size: 14px; resize: none;
+    outline: none; font-family: inherit; line-height: 1.5; max-height: 160px;
+}
+#input:focus { border-color: #4a5a75; }
+#send {
+    background: #2b3a55; color: #e8f0ff; border: none; border-radius: 10px;
+    padding: 0 22px; font-size: 14px; cursor: pointer; height: 40px;
+}
+#send:disabled { opacity: 0.45; cursor: not-allowed; }
+.cursor { display: inline-block; width: 8px; height: 15px; background: #6b9ad8; animation: blink 1s infinite; vertical-align: text-bottom; }
+@keyframes blink { 50% { opacity: 0; } }
+/* OOC（Agent 对话）样式 */
+.msg.mes.ooc .mes_text { border-left: 3px solid #3a5a3a; padding-left: 8px; }
+.ooc-tag { font-size: 11px; color: #7a9a7a; margin-bottom: 2px; }
+.edit-input {
+    width: 100%; background: #1c1f24; border: 1px solid #4a5a75; color: #d8dee8;
+    border-radius: 8px; padding: 8px 10px; font-size: 13px; resize: vertical;
+    font-family: inherit; line-height: 1.5; outline: none;
+}
+/* ---------- 模态框 ---------- */
+.modal-mask {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+}
+.modal-mask.open { display: flex; }
+.modal {
+    background: #1c1f24; border: 1px solid #2e3239; border-radius: 12px;
+    width: 640px; max-width: 92vw; max-height: 86vh; display: flex; flex-direction: column;
+    position: relative; overflow: hidden;
+    min-width: 380px; min-height: 260px;
+}
+.modal-resize {
+    position: absolute; top: 0; bottom: 0; right: -5px; width: 10px;
+    cursor: ew-resize; z-index: 60;
+}
+.modal-resize:hover, .modal-resize.dragging { background: rgba(107,154,216,0.25); }
+.settings-section { margin-top: 12px; border-top: 1px solid #2a2d33; padding-top: 4px; }
+.settings-section summary {
+    cursor: pointer; font-size: 13px; color: #c8d8a8; padding: 6px 0;
+    user-select: none; list-style: none;
+}
+.settings-section summary::-webkit-details-marker { display: none; }
+.settings-section summary::before { content: "▸ "; color: #8b93a1; }
+.settings-section[open] summary::before { content: "▾ "; }
+.settings-section-body { padding-top: 2px; }
+.modal-head {
+    padding: 12px 16px; border-bottom: 1px solid #2a2d33; display: flex; align-items: center; gap: 10px;
+    flex-shrink: 0; flex-wrap: wrap;
+}
+.modal-head h2 { font-size: 14px; color: #e8edf4; }
+.modal-head .spacer { flex: 1; }
+.modal-head button {
+    background: none; border: 1px solid #3a3f47; color: #9aa3b2;
+    border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+}
+.modal-head button:hover { color: #e8edf4; }
+.modal-body { padding: 14px 16px; overflow-y: auto; flex: 1; }
+.modal-foot { padding: 10px 16px; border-top: 1px solid #2a2d33; display: flex; gap: 8px; justify-content: flex-end; flex-shrink: 0; }
+.modal-foot button {
+    background: #2b3a55; color: #e8f0ff; border: none; border-radius: 8px;
+    padding: 6px 16px; font-size: 13px; cursor: pointer;
+}
+.modal-foot button.danger { background: #552b2b; color: #ffd8d8; }
+.form-row { margin-bottom: 10px; }
+.form-row label { display: block; font-size: 12px; color: #8b93a1; margin-bottom: 4px; }
+.form-row input, .form-row textarea, .form-row select {
+    width: 100%; background: #14161a; border: 1px solid #2e3239; color: #d8dee8;
+    border-radius: 8px; padding: 7px 10px; font-size: 13px; font-family: inherit;
+    outline: none; resize: vertical;
+}
+.form-row input:focus, .form-row textarea:focus, .form-row select:focus { border-color: #4a5a75; }
+.entry-list { display: flex; flex-direction: column; gap: 8px; }
+.entry {
+    background: #14161a; border: 1px solid #2e3239; border-radius: 8px; padding: 10px 12px;
+}
+.entry .entry-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.entry .entry-head .keys { color: #6b9ad8; font-size: 12px; flex: 1; }
+.entry .entry-head button {
+    background: none; border: 1px solid #3a3f47; color: #9aa3b2;
+    border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer;
+}
+.entry .entry-content { color: #aab2c0; font-size: 12px; white-space: pre-wrap; line-height: 1.5; max-height: 80px; overflow: hidden; cursor: pointer; }
+.entry .entry-content.open { max-height: none; }
+/* 世界状态区 */
+.world-state {
+    background: #14161a; border: 1px solid #2e3239; border-radius: 8px; padding: 10px 12px;
+}
+.world-state .ws-head {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+}
+.world-state .ws-head .ws-time { color: #c8d8a8; font-size: 13px; font-weight: 600; }
+.world-state .ws-head .spacer { flex: 1; }
+.world-state .ws-head button {
+    background: #2b3a55; color: #e8f0ff; border: none; border-radius: 6px;
+    padding: 3px 12px; font-size: 12px; cursor: pointer;
+}
+.world-state .ws-head button:disabled { opacity: 0.5; cursor: not-allowed; }
+.world-state .ws-body { color: #8b93a1; font-size: 12px; line-height: 1.6; }
+.world-state .ws-body .npc-item { padding: 2px 0; }
+.world-state .ws-body .npc-name { color: #9ab86a; }
+.world-state .ws-body .ws-log { color: #7a8494; border-top: 1px solid #2a2d33; margin-top: 6px; padding-top: 6px; }
+.vis-badge { font-size: 11px; margin-left: 6px; padding: 0 5px; border-radius: 3px; }
+.vis-badge.pub { background: #2a3a2a; color: #8ac08a; }
+/* 幕后 Agent 调整日志 */
+.agent-actions {
+    margin-top: 6px; font-size: 12px; color: #8a9a7a;
+    background: #1a1d10; border: 1px solid #2e3a1e; border-radius: 8px;
+    padding: 6px 10px; cursor: pointer; user-select: none;
+}
+.agent-actions:hover { color: #a8b89a; }
+.agent-actions-body {
+    display: none; font-size: 12px; color: #8b93a1; line-height: 1.6;
+    background: #1c1f24; border-radius: 8px; padding: 8px 10px; margin-top: 4px;
+    white-space: pre-wrap; word-break: break-word;
+    max-height: 320px; overflow-y: auto;
+}
+.vis-badge.hid { background: #3a2a2a; color: #c08a8a; }
+.ws-edit-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 4px; margin-bottom: 4px;
+}
+.ws-edit-grid input {
+    background: #14161a; border: 1px solid #2e3239; color: #d8dee8;
+    border-radius: 4px; padding: 4px 6px; font-size: 12px; min-width: 0;
+}
+.ws-edit-grid button {
+    background: none; border: 1px solid #5a3a3a; color: #c08a8a;
+    border-radius: 4px; cursor: pointer;
+}
+.empty-hint { color: #6b7686; font-size: 13px; text-align: center; padding: 24px 0; }
+select#charSelect { background: #14161a; color: #d8dee8; border: 1px solid #2e3239; border-radius: 6px; padding: 3px 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="errBar"></div>
+<header>
+    <h1 id="title">rp-agent<span class="proto-badge">概念原型</span></h1>
+    <span class="meta" id="meta"></span>
+    <span class="spacer"></span>
+    <select id="charSelect" title="切换角色卡"></select>
+    <button id="personaBtn" title="用户角色（全局，切换角色不受影响）">👤 用户</button>
+<button id="charBtn">角色卡</button>
+    <button id="wiBtn">世界书</button>
+    <button id="settingsBtn" title="设置">⚙ 设置</button>
+<button id="resetBtn" title="清理对话并重置世界状态（保留角色卡）">清理对话</button>
+</header>
+<div id="chatShell">
+<div id="messages"></div>
+<div id="inputbar">
+    <button id="modeBtn" title="切换：角色对话 / Agent 对话">🎭 角色</button>
+    <textarea id="input" rows="1" placeholder="🎭 输入故事指令…（Enter 发送，Shift+Enter 换行）"></textarea>
+    <button id="send">发送</button>
+</div>
+
+<!-- Agent 模式说明（仅 OOC 模式显示） -->
+<div id="agentHint">
+    <span class="hint-summary">⚙ Agent 模式：修改设定 · 管理世界书 · 世界演化 · 知识管理 · 网络搜索 · 问答</span>
+    <span class="hint-toggle" id="hintToggle">展开可用工具 ▸</span>
+    <div class="hint-detail" id="hintDetail">
+        <div style="color:#c8d8a8;margin:4px 0 2px;">🎭 角色与设定</div>
+        <div class="tool-item"><code>update_character(field, value)</code> — 修改角色卡字段（name / description / personality / scenario / world / rules，rules 换行分隔多条）</div>
+        <div class="tool-item"><code>set_scene(scene)</code> — 更新当前故事场景</div>
+        <div style="color:#c8d8a8;margin:6px 0 2px;">📖 世界书（防全知：隐藏条目角色默认不知晓）</div>
+        <div class="tool-item"><code>add_worldinfo(keys, content, public?)</code> — 添加世界书条目（keys 为触发关键词数组；public=false 设为隐藏秘密）</div>
+        <div class="tool-item"><code>update_worldinfo(id, keys?, content?, enabled?, public?)</code> — 更新条目（public=false 设为隐藏秘密）</div>
+        <div class="tool-item"><code>remove_worldinfo(id)</code> — 删除条目</div>
+        <div class="tool-item"><code>reveal_worldinfo(id)</code> — 向角色揭示隐藏信息（剧情中得知秘密时用）</div>
+        <div class="tool-item"><code>conceal_worldinfo(id)</code> — 收回已揭示的信息</div>
+        <div style="color:#c8d8a8;margin:6px 0 2px;">🌍 世界演化（NPC 离线行动）</div>
+        <div class="tool-item"><code>advance_world(note?)</code> — 推进世界：时间前进、NPC 行动演化</div>
+        <div class="tool-item"><code>query_world()</code> — 查看世界状态（时间 / NPC / 近期事件）</div>
+        <div class="tool-item"><code>set_world_time(time)</code> — 直接设置世界时间</div>
+        <div class="tool-item"><code>add_npc(name, location?, action?, goal?)</code> — 添加或更新 NPC</div>
+        <div class="tool-item"><code>update_npc(name, action?, location?, goal?)</code> — 更新 NPC 字段</div>
+        <div class="tool-item"><code>remove_npc(name)</code> — 移除 NPC</div>
+        <div style="color:#c8d8a8;margin:6px 0 2px;">🔎 网络</div>
+        <div class="tool-item"><code>web_search(query, max_results?)</code> — 互联网实时搜索（返回标题/链接/摘要）</div>
+        <div class="tool-item"><code>web_extract(url)</code> — 提取网页正文（Markdown，自动截断）</div>
+        <div style="color:#c8d8a8;margin:6px 0 2px;">⚙ 系统管理（Agent 对话拥有最高权限）</div>
+        <div class="tool-item"><code>get_system_config()</code> — 查看 API 配置集 / 导演设置 / 演化策略</div>
+        <div class="tool-item"><code>update_system_config(...)</code> — 切换/修改 API 配置、导演设置、演化策略（API Key 请在设置界面填写）</div>
+        <div style="margin-top:8px;color:#7a8494;border-top:1px solid #2a2d33;padding-top:6px;">
+            提示：切换模式时同步切换对话记录；"清理对话历史"本地执行（不经过 AI）。<br>
+            设置里可调节：世界演化模式（激进/平衡/保守）、演化方向、自动推演间隔、🤖 幕后 Agent 管理。
+        </div>
+    </div>
+</div>
+<div id="chatResize" title="拖动调整聊天区宽度"></div>
+</div>
+
+<!-- 设置模态框 -->
+<div class="modal-mask" id="settingsModal">
+    <div class="modal" style="width:480px;">
+        <div class="modal-head">
+            <h2>设置</h2>
+            <span class="spacer"></span>
+            <button id="settingsCloseBtn">✕</button>
+        </div>
+        <div class="modal-body">
+            <details class="settings-section" open>
+                <summary>⚙ 基础选项</summary>
+                <div class="settings-section-body">
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#d8dee8;cursor:pointer;">
+                <input type="checkbox" id="setShowStats" style="width:auto;">
+                显示生成统计（耗时 / Tokens）
+            </label>
+            <p style="color:#8b93a1;font-size:12px;margin-top:8px;">统计信息显示在每条回复下方，如：⏱ 12.3s | ⬆1.2k ⬇3.4k tokens。</p>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#d8dee8;cursor:pointer;margin-top:14px;">
+                <input type="checkbox" id="setAutoWorld" style="width:auto;">
+                世界自动演化（每 3 轮角色对话推进一次）
+            </label>
+            <p style="color:#8b93a1;font-size:12px;margin-top:8px;">让主角视线外的 NPC 持续行动与演化，剧情不再单调。</p>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#d8dee8;cursor:pointer;margin-top:14px;">
+                <input type="checkbox" id="setAutoAgent" style="width:auto;">
+                🤖 Agent 幕后管理（每轮角色对话后自动评估）
+            </label>
+            <p style="color:#8b93a1;font-size:12px;margin-top:8px;">自动推演世界、管理角色已知信息、为新人物/地点建档。调整记录显示在回复下方。</p>
+                </div>
+            </details>
+            <details class="settings-section" open>
+                <summary>🔌 API 与模型</summary>
+                <div class="settings-section-body">
+                <div class="form-row">
+                    <label>API 配置</label>
+                    <div style="display:flex;gap:6px;">
+                        <select id="cfgProfile" style="flex:1;"></select>
+                        <button id="profileNewBtn" style="background:none;border:1px solid #3a3f47;color:#9aa3b2;border-radius:6px;padding:2px 10px;font-size:12px;cursor:pointer;">＋ 新建</button>
+                        <button id="profileDelBtn" style="background:none;border:1px solid #5a3a3a;color:#c08a8a;border-radius:6px;padding:2px 10px;font-size:12px;cursor:pointer;">删除</button>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label>配置名称</label>
+                    <input id="cfgProfileName" placeholder="如 DeepSeek / OpenRouter / 本地 Ollama" autocomplete="off">
+                </div>
+                <div class="form-row">
+                    <label>API Base URL（OpenAI 兼容）</label>
+                    <input id="cfgBaseUrl" placeholder="https://api.deepseek.com" autocomplete="off">
+                </div>
+                <div class="form-row">
+                    <label>API Key</label>
+                    <div style="display:flex;gap:6px;">
+                        <input id="cfgApiKey" type="password" placeholder="sk-..." autocomplete="off" style="flex:1;">
+                        <label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#8b93a1;white-space:nowrap;">
+                            <input type="checkbox" id="cfgShowKey" style="width:auto;"> 显示
+                        </label>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label>模型（OpenAI 兼容 ID）</label>
+                    <div style="display:flex;gap:6px;">
+                        <select id="cfgModel" style="flex:1;">
+                            <option value="">加载中…</option>
+                        </select>
+                        <button id="refreshModelsBtn" style="background:none;border:1px solid #3a3f47;color:#9aa3b2;border-radius:6px;padding:2px 10px;font-size:12px;cursor:pointer;">刷新</button>
+                    </div>
+                    <input id="cfgModelCustom" placeholder="输入自定义模型 ID" autocomplete="off" style="display:none;margin-top:6px;">
+                </div>
+                <div class="form-row">
+                    <label>推理强度</label>
+                    <select id="cfgThinking">
+                        <option value="off">关闭</option>
+                        <option value="low">低</option>
+                        <option value="medium">中</option>
+                        <option value="high">高（默认）</option>
+                        <option value="xhigh">极高</option>
+                        <option value="max">最高</option>
+                    </select>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button id="cfgModelSave" style="background:#2b3a55;color:#e8f0ff;border:none;border-radius:6px;padding:5px 16px;font-size:12px;cursor:pointer;">保存 API 与模型</button>
+                    <span id="cfgModelMsg" style="color:#8ac08a;font-size:12px;"></span>
+                </div>
+                </div>
+            </details>
+            <details class="settings-section">
+                <summary>🎬 导演快速判断</summary>
+                <div class="settings-section-body">
+                <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#d8dee8;cursor:pointer;">
+                    <input type="checkbox" id="cfgDirectorEnable" style="width:auto;"> 每轮对话前先由导演快速判断（时间/场景/角色可知信息）
+                </label>
+                <div class="form-row" style="margin-top:10px;">
+                    <label>独立 API 配置（可选）</label>
+                    <select id="cfgDirectorProfile">
+                        <option value="">跟随当前配置</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>导演模型（留空=跟随所选配置）</label>
+                    <input id="cfgDirectorModel" placeholder="如 deepseek-v4-flash" autocomplete="off">
+                </div>
+                <div class="form-row">
+                    <label>导演推理强度（建议关闭或低）</label>
+                    <select id="cfgDirectorThinking">
+                        <option value="off">关闭（推荐）</option>
+                        <option value="low">低</option>
+                        <option value="medium">中</option>
+                        <option value="high">高</option>
+                        <option value="xhigh">极高</option>
+                        <option value="max">最高</option>
+                    </select>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button id="cfgDirectorSave" style="background:#2b3a55;color:#e8f0ff;border:none;border-radius:6px;padding:5px 16px;font-size:12px;cursor:pointer;">保存导演设置</button>
+                    <span id="cfgDirectorMsg" style="color:#8ac08a;font-size:12px;"></span>
+                </div>
+                </div>
+            </details>
+            <details class="settings-section">
+                <summary>📝 提示词自定义（当前生效内容，可直接编辑）</summary>
+                <div class="settings-section-body">
+                <div class="form-row">
+                    <label>OOC Agent 提示词（最高权限管理对话）</label>
+                    <textarea id="cfgPromptOoc" rows="6" placeholder="直接编辑；保存后覆盖默认"></textarea>
+                </div>
+                <div class="form-row">
+                    <label>幕后 Agent 提示词（每轮自动评估）</label>
+                    <textarea id="cfgPromptManager" rows="6" placeholder="直接编辑；保存后覆盖默认"></textarea>
+                </div>
+                <div class="form-row">
+                    <label>导演提示词（每轮剧情快速判断）</label>
+                    <textarea id="cfgPromptDirector" rows="5" placeholder="直接编辑；保存后覆盖默认"></textarea>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button id="cfgPromptSave" style="background:#2b3a55;color:#e8f0ff;border:none;border-radius:6px;padding:5px 16px;font-size:12px;cursor:pointer;">保存提示词</button>
+                    <button id="cfgPromptReset" style="background:none;border:1px solid #5a3a3a;color:#c08a8a;border-radius:6px;padding:5px 12px;font-size:12px;cursor:pointer;">还原默认提示词</button>
+                    <span id="cfgPromptMsg" style="color:#8ac08a;font-size:12px;"></span>
+                </div>
+                </div>
+            </details>
+            <details class="settings-section">
+                <summary>🌍 演化策略</summary>
+                <div class="settings-section-body">
+                <div class="form-row">
+                    <label>演化模式</label>
+                    <select id="setEvoMode">
+                        <option value="active">激进 — NPC 主动推进事件，世界充满变化</option>
+                        <option value="balanced">平衡 — 自然演化，不刻意制造戏剧性</option>
+                        <option value="minimal">保守 — 只处理明显事件，最小化变化</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>演化方向 / 主线剧情（可选）</label>
+                    <textarea id="setEvoDir" rows="2" placeholder="例：剧情围绕旧照片的秘密展开，NPC 的行动应逐渐把它推向主角。"></textarea>
+                </div>
+                <div class="form-row">
+                    <label>自动推演间隔</label>
+                    <select id="setEvoInterval">
+                        <option value="1">每 1 轮</option>
+                        <option value="2">每 2 轮</option>
+                        <option value="3">每 3 轮</option>
+                        <option value="5">每 5 轮</option>
+                    </select>
+                </div>
+                <button id="setEvoSave" style="background:#2b3a55;color:#e8f0ff;border:none;border-radius:6px;padding:5px 16px;font-size:12px;cursor:pointer;">保存演化策略</button>
+                <span id="setEvoMsg" style="color:#8ac08a;font-size:12px;margin-left:8px;"></span>
+                </div>
+            </details>
+        </div>
+    </div>
+</div>
+
+<!-- 用户角色模态框（全局 persona） -->
+<div class="modal-mask" id="personaModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h2>用户角色（全局）</h2>
+            <span class="spacer"></span>
+            <button id="personaCloseBtn">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="color:#8b93a1;font-size:12px;margin-bottom:12px;">用户（叙述者）的身份设定，全局通用——切换 AI 角色时保持不变。</p>
+            <div class="form-row"><label>名称（叙述者称谓）</label><input id="p_name"></div>
+            <div class="form-row"><label>描述（身份/外貌/背景）</label><textarea id="p_description" rows="3"></textarea></div>
+            <div class="form-row"><label>性格</label><textarea id="p_personality" rows="2"></textarea></div>
+            <div class="form-row"><label>备注（额外设定，可选）</label><textarea id="p_notes" rows="2"></textarea></div>
+        </div>
+        <div class="modal-foot">
+            <button id="personaSaveBtn">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 角色卡模态框 -->
+<div class="modal-mask" id="charModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h2>角色卡</h2>
+            <span class="spacer"></span>
+            <button id="importBtn" title="导入 ST 角色卡（PNG）">📥 导入 ST 卡</button>
+            <input type="file" id="importFile" accept=".png,image/png" style="display:none">
+            <button id="charNewBtn">＋ 新建</button>
+            <button id="charCloseBtn">✕</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-row"><label>名称</label><input id="f_name"></div>
+            <div class="form-row"><label>描述（外貌/背景）</label><textarea id="f_description" rows="3"></textarea></div>
+            <div class="form-row"><label>性格</label><textarea id="f_personality" rows="2"></textarea></div>
+            <div class="form-row"><label>场景</label><textarea id="f_scenario" rows="2"></textarea></div>
+            <div class="form-row"><label>世界设定</label><textarea id="f_world" rows="3"></textarea></div>
+            <div class="form-row"><label>创作规则（每行一条）</label><textarea id="f_rules" rows="4"></textarea></div>
+        </div>
+        <div class="modal-foot">
+            <button class="danger" id="charDelBtn">删除</button>
+            <span class="spacer"></span>
+            <button id="charSaveBtn">保存</button>
+        </div>
+    </div>
+</div>
+
+<!-- 世界书模态框 -->
+<div class="modal-mask" id="wiModal">
+    <div class="modal">
+        <div class="modal-head">
+            <h2>世界书</h2>
+            <span class="spacer"></span>
+            <button id="wiNewBtn">＋ 新增条目</button>
+            <button id="wiCloseBtn">✕</button>
+        </div>
+        <div class="modal-body">
+            <div id="worldStateArea" style="margin-bottom:12px;"></div>
+            <div class="entry-list" id="wiList"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+"use strict";
+
+// ---------- 全局错误处理 ----------
+function showError(msg) {
+    const bar = $("errBar");
+    if (!bar) return;
+    bar.textContent = "⚠ " + msg + " ";
+    const retry = document.createElement("button");
+    retry.textContent = "重试";
+    retry.addEventListener("click", () => { bar.style.display = "none"; location.reload(); });
+    bar.appendChild(retry);
+    bar.style.display = "block";
+}
+window.addEventListener("error", (e) => showError("脚本错误: " + (e.message || "未知")));
+window.addEventListener("unhandledrejection", (e) => {
+    const msg = (e.reason && e.reason.message) || "请求失败（服务可能未启动）";
+    showError(msg);
+});
+const $ = (id) => document.getElementById(id);
+const box = $("messages");
+let generating = false;
+let worldTick = 0; // 世界自动演化计数
+let state = null; // { character, characters, worldInfo, meta }
+
+function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function scrollBottom() { box.scrollTop = box.scrollHeight; }
+
+// ---------- 轻量提示 ----------
+function showNotice(text) {
+    let el = $("notice");
+    if (!el) {
+        el = document.createElement("div");
+        el.id = "notice";
+        el.style.cssText = "position:fixed;top:60px;left:50%;transform:translateX(-50%);background:#2b3a55;color:#e8f0ff;padding:8px 16px;border-radius:8px;font-size:13px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,0.4);opacity:0;transition:opacity 0.3s;pointer-events:none;";
+        document.body.appendChild(el);
+    }
+    el.textContent = text;
+    el.style.opacity = "1";
+    setTimeout(() => { el.style.opacity = "0"; }, 2000);
+}
+
+// ---------- 设置（localStorage 持久化） ----------
+let settings = { showStats: true, autoWorld: true, autoAgent: true };
+function loadSettings() {
+    try { settings = { ...settings, ...JSON.parse(localStorage.getItem("rp-settings") || "{}") }; } catch { }
+}
+function saveSettings() {
+    localStorage.setItem("rp-settings", JSON.stringify(settings));
+}
+loadSettings();
+
+function fmtTokens(n) {
+    if (n >= 1000) return (n / 1000).toFixed(1) + "k";
+    return String(n);
+}
+
+// 统计条：tokens（历史/实时） + durationMs（实时）
+function appendStats(col, m) {
+    if (!settings.showStats) return;
+    if (m.role !== "assistant" || (!m.tokens && !m.durationMs)) return;
+    const bar = document.createElement("div");
+    bar.className = "stats-bar";
+    const parts = [];
+    if (m.durationMs != null) parts.push("⏱ " + (m.durationMs / 1000).toFixed(1) + "s");
+    if (m.tokens && m.tokens.total) {
+        parts.push("⬆" + fmtTokens(m.tokens.input || 0) + " ⬇" + fmtTokens(m.tokens.output || 0) + " tokens");
+    }
+    bar.textContent = parts.join(" | ");
+    col.appendChild(bar);
+}
+
+// ---------- 渲染 ----------
+function makeToggle(headEl, bodyEl, openText, closeText) {
+    headEl.addEventListener("click", () => {
+        const open = bodyEl.style.display === "block";
+        bodyEl.style.display = open ? "none" : "block";
+        headEl.textContent = open ? openText : closeText;
+    });
+}
+// 幕后 Agent 调整日志（可展开）
+function renderAgentActions(wrap, actions) {
+    const head = document.createElement("div");
+    head.className = "agent-actions";
+    head.textContent = "🤖 Agent 幕后调整 ▸";
+    const body = document.createElement("div");
+    body.className = "agent-actions-body";
+    body.textContent = actions.join("\n");
+    makeToggle(head, body, "🤖 Agent 幕后调整 ▸", "🤖 Agent 幕后调整 ▾");
+    wrap.appendChild(head);
+    wrap.appendChild(body);
+}
+
+// 工具过程折叠区（默认折叠）
+function renderTrace(col, trace) {
+    if (!trace || !trace.length) return;
+    const head = document.createElement("div");
+    head.className = "trace-head";
+    head.textContent = `🔄 工具过程（${trace.length} 次调用）▸`;
+    const body = document.createElement("div");
+    body.className = "trace-body";
+    trace.forEach((t) => {
+        const row = document.createElement("div");
+        row.className = "trace-round";
+        const call = document.createElement("div");
+        call.className = "trace-call";
+        const args = JSON.stringify(t.toolCall?.args ?? {});
+        call.textContent = `🔧 ${t.toolCall?.name ?? "?"}(${args.length > 180 ? args.slice(0, 180) + "…" : args})`;
+        row.appendChild(call);
+        if (t.thinking) {
+            const th = document.createElement("div");
+            th.className = "trace-thinking";
+            th.textContent = "思考 ▸";
+            const tb = document.createElement("div");
+            tb.className = "trace-thinking-body";
+            tb.textContent = t.thinking;
+            makeToggle(th, tb, "思考 ▸", "思考 ▾");
+            row.appendChild(th);
+            row.appendChild(tb);
+        }
+        if (t.toolResult) {
+            const r = document.createElement("div");
+            r.className = "trace-result";
+            r.textContent = "→ " + (t.toolResult.length > 400 ? t.toolResult.slice(0, 400) + "…" : t.toolResult);
+            row.appendChild(r);
+        }
+        body.appendChild(row);
+    });
+    makeToggle(head, body, `🔄 工具过程（${trace.length} 次调用）▸`, `🔄 工具过程（${trace.length} 次调用）▾`);
+    col.appendChild(head);
+    col.appendChild(body);
+}
+
+function makeMesButton(label, title, fn) {
+    const b = document.createElement("button");
+    b.className = "mes_button";
+    b.textContent = label;
+    b.title = title;
+    b.addEventListener("click", fn);
+    return b;
+}
+function renderMessage(m) {
+    const wrap = document.createElement("div");
+    wrap.className = "msg mes " + m.role + (m.ooc ? " ooc" : "");
+    if (m.id) wrap.dataset.msgId = m.id;
+    const col = document.createElement("div");
+    col.className = "mes_block";
+
+    // 头部：名字 + 时间 + 悬停图标按钮（SillyTavern 风格，常驻布局不位移）
+    const head = document.createElement("div");
+    head.className = "ch_name";
+    const nameWrap = document.createElement("div");
+    nameWrap.className = "name-wrap";
+    const name = document.createElement("span");
+    name.className = "name_text";
+    if (m.ooc) name.textContent = m.role === "assistant" ? "⚙ Agent" : "我";
+    else name.textContent = m.role === "assistant" ? (state?.character?.name || "角色") : "我";
+    nameWrap.appendChild(name);
+    if (m.timestamp) {
+        const ts = document.createElement("span");
+        ts.className = "timestamp";
+        ts.textContent = new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+        nameWrap.appendChild(ts);
+    }
+    head.appendChild(nameWrap);
+    const buttons = document.createElement("div");
+    buttons.className = "mes_buttons";
+    if (m.role === "assistant") {
+        buttons.appendChild(makeMesButton("↻", "重新生成", () => regenerate(m.id)));
+        buttons.appendChild(makeMesButton("🗑", "删除", () => del(m.id)));
+    } else if (m.role === "user") {
+        buttons.appendChild(makeMesButton("✎", "编辑", () => editMessage(m)));
+        buttons.appendChild(makeMesButton("🗑", "删除", () => del(m.id)));
+    }
+    head.appendChild(buttons);
+    col.appendChild(head);
+
+    // 工具过程折叠区（默认折叠，含每轮思考/调用/结果）
+    if (m.role === "assistant") renderTrace(col, m.trace);
+
+    if (m.role === "assistant" && m.thinking) {
+        const th = document.createElement("div");
+        th.className = "thinking";
+        th.textContent = "思考了一会 ▸";
+        const tb = document.createElement("div");
+        tb.className = "thinking-body";
+        tb.textContent = m.thinking;
+        makeToggle(th, tb, "思考了一会 ▸", "思考了一会 ▾");
+        col.appendChild(th);
+        col.appendChild(tb);
+    }
+
+    const bubble = document.createElement("div");
+    bubble.className = "mes_text";
+    bubble.textContent = m.content;
+    col.appendChild(bubble);
+
+    if (m.role === "assistant" && m.versions && m.versions.length) {
+        const vbox = document.createElement("div");
+        vbox.className = "versions";
+        vbox.textContent = m.versions.length + " 个旧版本 ▸";
+        const vlist = document.createElement("div");
+        vlist.style.display = "none";
+        m.versions.forEach((v, i) => {
+            const item = document.createElement("div");
+            item.className = "version";
+            const vh = document.createElement("div");
+            vh.className = "v-head";
+            const time = new Date(v.ts).toLocaleTimeString();
+            vh.textContent = `版本 ${i + 1}（${time}）▸`;
+            const vb = document.createElement("div");
+            vb.className = "v-body";
+            vb.textContent = v.content;
+            makeToggle(vh, vb, `版本 ${i + 1}（${time}）▸`, `版本 ${i + 1}（${time}）▾`);
+            item.appendChild(vh);
+            item.appendChild(vb);
+            vlist.appendChild(item);
+        });
+        makeToggle(vbox, vlist, m.versions.length + " 个旧版本 ▸", m.versions.length + " 个旧版本 ▾");
+        col.appendChild(vbox);
+        col.appendChild(vlist);
+    }
+
+    if (m.role === "assistant") appendStats(col, m);
+    wrap.appendChild(col);
+    return wrap;
+}
+
+async function loadHistory() {
+    let res;
+    try {
+        res = await fetch(`/api/history?mode=${mode}`);
+    } catch (e) {
+        showError("加载对话失败: " + e.message + "（5 秒后自动重试）");
+        setTimeout(loadHistory, 5000);
+        return;
+    }
+    if (!res.ok) {
+        showError("加载对话失败: HTTP " + res.status + "（5 秒后自动重试）");
+        setTimeout(loadHistory, 5000);
+        return;
+    }
+    const data = await res.json();
+    $("meta").textContent = `${data.meta.character} | ${data.meta.model} | 思考 ${data.meta.thinking}`;
+    box.innerHTML = "";
+    if (data.messages.length === 0) {
+        const hint = document.createElement("div");
+        hint.style.cssText = "color:#6b7686;font-size:13px;text-align:center;padding:40px 0;";
+        hint.textContent = mode === "ooc"
+            ? "⚙ Agent 对话为空。切换到此模式后，可以修改角色设定、管理世界书、问答。"
+            : "🎭 角色对话为空。切换到此模式后输入故事指令开始。";
+        box.appendChild(hint);
+    }
+    for (const m of data.messages) {
+        const msgEl = renderMessage(m);
+        box.appendChild(msgEl);
+        // 持久化的幕后 Agent 调整（重新加载历史时仍可见）
+        if (m.role === "assistant" && m.agentActions && m.agentActions.length) {
+            const actionsWrap = document.createElement("div");
+            msgEl.after(actionsWrap);
+            renderAgentActions(actionsWrap, m.agentActions);
+        }
+    }
+    scrollBottom();
+}
+
+// ---------- 流式渲染 ----------
+function streamFromResponse(res, col, bubble) {
+    return new Promise((resolve) => {
+        let currentText = "";
+        let currentThinking = "";
+        let thinkingHead = null;
+        let thinkingBody = null;
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        (async () => {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += decoder.decode(value, { stream: true });
+                let idx;
+                while ((idx = buf.indexOf("\n\n")) >= 0) {
+                    const chunk = buf.slice(0, idx);
+                    buf = buf.slice(idx + 2);
+                    const line = chunk.trim();
+                    if (!line.startsWith("data: ")) continue;
+                    let ev;
+                    try { ev = JSON.parse(line.slice(6)); } catch { continue; }
+                    if (ev.type === "thinking") {
+                        if (!thinkingBody) {
+                            thinkingHead = document.createElement("div");
+                            thinkingHead.className = "thinking";
+                            thinkingHead.textContent = "思考了一会 ▾";
+                            thinkingBody = document.createElement("div");
+                            thinkingBody.className = "thinking-body";
+                            thinkingBody.style.display = "block";
+                            makeToggle(thinkingHead, thinkingBody, "思考了一会 ▸", "思考了一会 ▾");
+                            col.insertBefore(thinkingHead, bubble);
+                            col.insertBefore(thinkingBody, bubble);
+                        }
+                        currentThinking += ev.delta;
+                        thinkingBody.textContent = currentThinking;
+                        scrollBottom();
+                    } else if (ev.type === "thinking_end") {
+                        if (thinkingHead) thinkingHead.textContent = "思考了一会 ▸";
+                        if (thinkingBody) thinkingBody.style.display = "none";
+                    } else if (ev.type === "tool") {
+                        const note = document.createElement("div");
+                        note.className = "tool-note";
+                        note.textContent = `🔧 调用工具：${ev.name}(${JSON.stringify(ev.args)})`;
+                        col.insertBefore(note, bubble);
+                    } else if (ev.type === "text") {
+                        currentText += ev.delta;
+                        bubble.innerHTML = escapeHtml(currentText) + '<span class="cursor"></span>';
+                        scrollBottom();
+                    } else if (ev.type === "done") {
+                        const msgEl = renderMessage({ ...ev.message, durationMs: ev.durationMs });
+                        const wrap = col.parentElement;
+                        wrap.replaceWith(msgEl);
+                        refreshState();
+                        // 幕后 Agent：IC 对话每轮自动评估
+                        const agentPromise = !ev.message.ooc && settings.autoAgent
+                            ? fetch("/api/agent/run", {
+                                method: "POST",
+                                headers: { "content-type": "application/json" },
+                                body: JSON.stringify({ messageId: ev.message.id }),
+                            })
+                                .then((r) => r.json())
+                                .then((d) => {
+                                    if (d.actions && d.actions.length) {
+                                        const actionsWrap = document.createElement("div");
+                                        msgEl.after(actionsWrap);
+                                        renderAgentActions(actionsWrap, d.actions);
+                                    }
+                                    refreshState();
+                                })
+                                .catch(() => {})
+                            : Promise.resolve();
+                        // 世界自动演化：等 Agent 评估结束后再推进，避免两套后台互相打架
+                        agentPromise.then(() => {
+                            if (!ev.message.ooc && settings.autoWorld) {
+                                worldTick++;
+                                const interval = (state && state.settings && state.settings.advanceInterval) || 3;
+                                if (worldTick % interval === 0) {
+                                    fetch("/api/advance", {
+                                        method: "POST",
+                                        headers: { "content-type": "application/json" },
+                                        body: JSON.stringify({}),
+                                    })
+                                        .then((r) => r.json())
+                                        .then((d) => {
+                                            if (d.result) showNotice("🌍 " + d.result.slice(0, 100));
+                                            if (d.worldState) renderWorldState();
+                                        })
+                                        .catch(() => {});
+                                }
+                            }
+                        });
+                    } else if (ev.type === "error") {
+                        bubble.textContent = "⚠ " + ev.message;
+                    }
+                }
+            }
+            resolve();
+        })();
+    });
+}
+
+// ---------- 状态与面板 ----------
+async function refreshState() {
+    let res;
+    try {
+        res = await fetch("/api/state");
+    } catch (e) {
+        showError("加载数据失败: " + e.message);
+        return;
+    }
+    if (!res.ok) {
+        showError("加载数据失败: HTTP " + res.status);
+        return;
+    }
+    state = await res.json();
+    // 顶栏角色选择器
+    const sel = $("charSelect");
+    sel.innerHTML = "";
+    for (const c of state.characters) {
+        const opt = document.createElement("option");
+        opt.value = c.id;
+        opt.textContent = c.name;
+        opt.selected = c.id === state.character.id;
+        sel.appendChild(opt);
+    }
+    fillCharForm(state.character);
+    if (state.persona) fillPersonaForm(state.persona);
+    renderWorldInfo();
+    renderWorldState();
+}
+function fillCharForm(c) {
+    $("f_name").value = c.name;
+    $("f_description").value = c.description;
+    $("f_personality").value = c.personality;
+    $("f_scenario").value = c.scenario;
+    $("f_world").value = c.world;
+    $("f_rules").value = (c.rules || []).join("\n");
+}
+function currentFormCard() {
+    return {
+        name: $("f_name").value.trim(),
+        description: $("f_description").value.trim(),
+        personality: $("f_personality").value.trim(),
+        scenario: $("f_scenario").value.trim(),
+        world: $("f_world").value.trim(),
+        rules: $("f_rules").value.split("\n").map((s) => s.trim()).filter(Boolean),
+    };
+}
+async function renderWorldState() {
+    const area = $("worldStateArea");
+    if (!area) return;
+    let ws;
+    try {
+        const res = await fetch("/api/worldstate");
+        ws = (await res.json()).worldState;
+    } catch {
+        area.innerHTML = '<div class="world-state"><div style="color:#7a8494;">世界状态加载失败</div></div>';
+        return;
+    }
+    const div = document.createElement("div");
+    div.className = "world-state";
+    const head = document.createElement("div");
+    head.className = "ws-head";
+    const time = document.createElement("span");
+    time.className = "ws-time";
+    time.textContent = "🌍 " + (ws.time || "未知时间");
+    const spacer = document.createElement("span");
+    spacer.className = "spacer";
+    const advBtn = document.createElement("button");
+    advBtn.textContent = "⏩ 推进世界";
+    const editBtn = document.createElement("button");
+    editBtn.textContent = "✏️ 编辑";
+    editBtn.style.marginRight = "6px";
+    head.appendChild(time);
+    head.appendChild(spacer);
+    head.appendChild(editBtn);
+    head.appendChild(advBtn);
+    const body = document.createElement("div");
+    body.className = "ws-body";
+    if (ws.npcs && ws.npcs.length) {
+        for (const n of ws.npcs) {
+            const item = document.createElement("div");
+            item.className = "npc-item";
+            const name = document.createElement("span");
+            name.className = "npc-name";
+            name.textContent = n.name + "@" + (n.location || "?") + "：";
+            const action = document.createTextNode(n.action || "");
+            item.appendChild(name);
+            item.appendChild(action);
+            body.appendChild(item);
+        }
+    } else {
+        const empty = document.createElement("div");
+        empty.textContent = "尚无 NPC。推进世界后，模拟器会基于故事背景创建。";
+        body.appendChild(empty);
+    }
+    if (ws.log && ws.log.length) {
+        const log = document.createElement("div");
+        log.className = "ws-log";
+        log.textContent = "近期事件：\n" + ws.log.slice(-3).map((l) => (typeof l === "string" ? l : l.text)).join("\n");
+        body.appendChild(log);
+    }
+    div.appendChild(head);
+    div.appendChild(body);
+    area.innerHTML = "";
+    area.appendChild(div);
+    advBtn.addEventListener("click", async () => {
+        advBtn.disabled = true;
+        advBtn.textContent = "推演中…";
+        try {
+            const res = await fetch("/api/advance", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({}),
+            });
+            const data = await res.json();
+            if (data.result) showNotice("🌍 " + data.result.slice(0, 100));
+        } catch (e) {
+            showNotice("世界推演失败：" + e.message);
+        }
+        advBtn.disabled = false;
+        advBtn.textContent = "⏩ 推进世界";
+        renderWorldState();
+    });
+    // 编辑模式：时间 + NPC 表单
+    editBtn.addEventListener("click", () => renderWorldEdit(ws));
+}
+
+// 世界状态编辑表单
+function renderWorldEdit(ws) {
+    const area = $("worldStateArea");
+    if (!area) return;
+    const div = document.createElement("div");
+    div.className = "world-state";
+    const head = document.createElement("div");
+    head.className = "ws-head";
+    const t = document.createElement("span");
+    t.className = "ws-time";
+    t.textContent = "✏️ 编辑世界状态";
+    const spacer = document.createElement("span");
+    spacer.className = "spacer";
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "取消";
+    head.appendChild(t);
+    head.appendChild(spacer);
+    head.appendChild(cancelBtn);
+    const body = document.createElement("div");
+    body.className = "ws-body";
+    // 时间
+    const timeRow = document.createElement("div");
+    timeRow.className = "form-row";
+    const timeLab = document.createElement("label");
+    timeLab.textContent = "世界时间";
+    const timeIn = document.createElement("input");
+    timeIn.value = ws.time || "";
+    timeRow.appendChild(timeLab);
+    timeRow.appendChild(timeIn);
+    body.appendChild(timeRow);
+    // NPC 列表
+    const npcList = document.createElement("div");
+    npcList.id = "npcEditList";
+    body.appendChild(npcList);
+    const renderNpcRows = () => {
+        npcList.innerHTML = "";
+        (ws.npcs || []).forEach((n, i) => {
+            const row = document.createElement("div");
+            row.className = "ws-edit-grid";
+            const mk = (val, ph) => {
+                const inp = document.createElement("input");
+                inp.value = val || "";
+                inp.placeholder = ph;
+                return inp;
+            };
+            const nameIn = mk(n.name, "名字");
+            const locIn = mk(n.location, "位置");
+            const actIn = mk(n.action, "正在做的事");
+            const goalIn = mk(n.goal, "目标");
+            const delBtn = document.createElement("button");
+            delBtn.textContent = "🗑";
+            // 删除按钮样式由 .ws-edit-grid button 提供
+            delBtn.addEventListener("click", () => {
+                ws.npcs.splice(i, 1);
+                renderNpcRows();
+            });
+            row.appendChild(nameIn);
+            row.appendChild(locIn);
+            row.appendChild(actIn);
+            row.appendChild(goalIn);
+            row.appendChild(delBtn);
+            npcList.appendChild(row);
+        });
+    };
+    renderNpcRows();
+    const addBtn = document.createElement("button");
+    addBtn.textContent = "＋ 添加 NPC";
+    addBtn.style.cssText = "background:none;border:1px solid #3a4a3a;color:#8ac08a;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;margin-top:4px;";
+    addBtn.addEventListener("click", () => {
+        if (!ws.npcs) ws.npcs = [];
+        ws.npcs.push({ name: "新NPC", location: "", action: "", goal: "" });
+        renderNpcRows();
+    });
+    body.appendChild(addBtn);
+    // 近期事件编辑
+    const logRow = document.createElement("div");
+    logRow.className = "form-row";
+    const logLab = document.createElement("label");
+    logLab.textContent = "近期事件（每行一条）";
+    const logIn = document.createElement("textarea");
+    logIn.value = (ws.log || []).map((l) => (typeof l === "string" ? l : l.text)).join("\n");
+    logIn.rows = Math.min(8, Math.max(3, (ws.log || []).length));
+    logIn.style.cssText = "background:#14161a;border:1px solid #2e3239;color:#d8dee8;border-radius:6px;padding:6px 8px;font-size:12px;width:100%;font-family:inherit;resize:vertical;";
+    logRow.appendChild(logLab);
+    logRow.appendChild(logIn);
+    body.appendChild(logRow);
+    const saveRow = document.createElement("div");
+    saveRow.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:10px;";
+    const saveBtn = document.createElement("button");
+    saveBtn.textContent = "保存";
+    saveBtn.style.cssText = "background:#2b3a55;color:#e8f0ff;border:none;border-radius:6px;padding:5px 16px;font-size:12px;cursor:pointer;";
+    saveBtn.addEventListener("click", async () => {
+        // 从表单收集
+        ws.time = timeIn.value.trim();
+        const rows = npcList.querySelectorAll("div[style*='grid']");
+        const npcs = [];
+        rows.forEach((r) => {
+            const ins = r.querySelectorAll("input");
+            if (ins.length >= 4 && ins[0].value.trim()) {
+                npcs.push({ name: ins[0].value.trim(), location: ins[1].value.trim(), action: ins[2].value.trim(), goal: ins[3].value.trim() });
+            }
+        });
+        ws.npcs = npcs;
+        ws.log = logIn.value.split("\n").map((s) => s.trim()).filter(Boolean).map((text) => {
+            const old = (ws.log || []).find((l) => (typeof l === "string" ? l : l.text) === text);
+            return { text, known: old ? (typeof old === "string" ? false : old.known === true) : false };
+        });
+        const res = await fetch("/api/worldstate", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ worldState: ws }),
+        });
+        if (res.ok) showNotice("世界状态已保存");
+        renderWorldState();
+    });
+    const cancelBtn2 = document.createElement("button");
+    cancelBtn2.textContent = "取消";
+    cancelBtn2.style.cssText = "background:none;border:1px solid #3a3f47;color:#9aa3b2;border-radius:6px;padding:5px 14px;font-size:12px;cursor:pointer;";
+    cancelBtn2.addEventListener("click", () => renderWorldState());
+    cancelBtn.addEventListener("click", () => renderWorldState());
+    saveRow.appendChild(cancelBtn2);
+    saveRow.appendChild(saveBtn);
+    body.appendChild(saveRow);
+    div.appendChild(head);
+    div.appendChild(body);
+    area.innerHTML = "";
+    area.appendChild(div);
+}
+
+function renderWorldInfo() {
+    const list = $("wiList");
+    list.innerHTML = "";
+    if (!state.worldInfo.length) {
+        list.innerHTML = '<div class="empty-hint">暂无条目。新增后，用户消息命中关键词会自动注入。</div>';
+        return;
+    }
+    for (const e of state.worldInfo) {
+        const div = document.createElement("div");
+        div.className = "entry";
+        const head = document.createElement("div");
+        head.className = "entry-head";
+        const keys = document.createElement("span");
+        keys.className = "keys";
+        keys.textContent = (e.enabled ? "● " : "○ ") + e.keys.join(" / ");
+        const vis = document.createElement("span");
+        vis.className = "vis-badge " + (e.public ? "pub" : "hid");
+        vis.textContent = e.public ? "公开" : "隐藏";
+        vis.title = e.public ? "角色已知（默认注入设定）" : "角色未知（默认不注入，Agent 可揭示）";
+        keys.appendChild(vis);
+        const btnVis = document.createElement("button");
+        btnVis.textContent = e.public ? "🔒 隐藏" : "🔓 公开";
+        btnVis.addEventListener("click", async () => {
+            await fetch(`/api/worldinfo/${e.id}`, {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ public: !e.public }),
+            });
+            refreshState();
+        });
+        const btnEn = document.createElement("button");
+        btnEn.textContent = e.enabled ? "停用" : "启用";
+        btnEn.title = e.enabled ? "停用后关键词不再触发注入" : "启用关键词注入";
+        btnEn.addEventListener("click", async () => {
+            await fetch(`/api/worldinfo/${e.id}`, {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ enabled: !e.enabled }),
+            });
+            refreshState();
+        });
+        const btnEdit = document.createElement("button");
+        btnEdit.textContent = "编辑";
+        btnEdit.addEventListener("click", () => editWorldInfo(e));
+        const btnDel = document.createElement("button");
+        btnDel.textContent = "删除";
+        btnDel.addEventListener("click", async () => {
+            if (!confirm("删除该世界书条目？")) return;
+            await fetch(`/api/worldinfo/${e.id}/delete`, { method: "POST" });
+            refreshState();
+        });
+        head.appendChild(keys);
+        head.appendChild(btnVis);
+        head.appendChild(btnEn);
+        head.appendChild(btnEdit);
+        head.appendChild(btnDel);
+        const content = document.createElement("div");
+        content.className = "entry-content";
+        content.textContent = e.content;
+        content.title = "点击展开/收起完整内容";
+        content.addEventListener("click", () => content.classList.toggle("open"));
+        div.appendChild(head);
+        div.appendChild(content);
+        list.appendChild(div);
+    }
+}
+function editWorldInfo(e) {
+    const list = $("wiList");
+    list.innerHTML = "";
+    const div = document.createElement("div");
+    div.className = "entry";
+    const mkRow = (label, value, rows) => {
+        const row = document.createElement("div");
+        row.className = "form-row";
+        const lab = document.createElement("label");
+        lab.textContent = label;
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        ta.rows = rows;
+        ta.className = "edit-input";
+        row.appendChild(lab);
+        row.appendChild(ta);
+        div.appendChild(row);
+        return ta;
+    };
+    const keysTa = mkRow("触发关键词（逗号分隔）", (e.keys || []).join(", "), 1);
+    const contentTa = mkRow("内容", e.content, 5);
+    const pubRow = document.createElement("div");
+    pubRow.className = "form-row";
+    const pubLab = document.createElement("label");
+    pubLab.textContent = "可见性";
+    const pubSel = document.createElement("select");
+    pubSel.className = "edit-input";
+    const optPub = document.createElement("option");
+    optPub.value = "true";
+    optPub.textContent = "公开（角色已知，自动注入）";
+    const optHid = document.createElement("option");
+    optHid.value = "false";
+    optHid.textContent = "隐藏（角色未知，Agent 可揭示）";
+    pubSel.appendChild(optPub);
+    pubSel.appendChild(optHid);
+    pubSel.value = String(e.public);
+    pubRow.appendChild(pubLab);
+    pubRow.appendChild(pubSel);
+    div.appendChild(pubRow);
+    const enRow = document.createElement("div");
+    enRow.className = "form-row";
+    const enLab = document.createElement("label");
+    enLab.textContent = "启用关键词注入 ";
+    const enChk = document.createElement("input");
+    enChk.type = "checkbox";
+    enChk.checked = e.enabled !== false;
+    enLab.appendChild(enChk);
+    enRow.appendChild(enLab);
+    div.appendChild(enRow);
+    const btnRow = document.createElement("div");
+    btnRow.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:8px;";
+    const saveBtn = document.createElement("button");
+    saveBtn.textContent = "保存";
+    saveBtn.style.cssText = "background:#2b3a55;color:#e8f0ff;border:none;border-radius:6px;padding:5px 14px;cursor:pointer;";
+    saveBtn.addEventListener("click", async () => {
+        await fetch(`/api/worldinfo/${e.id}`, {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+                keys: keysTa.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean),
+                content: contentTa.value,
+                public: pubSel.value === "true",
+                enabled: enChk.checked,
+            }),
+        });
+        refreshState();
+    });
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "取消";
+    cancelBtn.style.cssText = "background:none;border:1px solid #3a3f47;color:#9aa3b2;border-radius:6px;padding:5px 14px;cursor:pointer;";
+    cancelBtn.addEventListener("click", () => refreshState());
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(saveBtn);
+    div.appendChild(btnRow);
+    list.appendChild(div);
+}
+
+function addWorldInfo() {
+    const list = $("wiList");
+    list.innerHTML = "";
+    const div = document.createElement("div");
+    div.className = "entry";
+    const mkRow = (label, value, rows) => {
+        const row = document.createElement("div");
+        row.className = "form-row";
+        const lab = document.createElement("label");
+        lab.textContent = label;
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        ta.rows = rows;
+        ta.className = "edit-input";
+        row.appendChild(lab);
+        row.appendChild(ta);
+        div.appendChild(row);
+        return ta;
+    };
+    const keysTa = mkRow("触发关键词（逗号分隔）", "", 1);
+    const contentTa = mkRow("内容", "", 5);
+    const pubRow = document.createElement("div");
+    pubRow.className = "form-row";
+    const pubLab = document.createElement("label");
+    pubLab.textContent = "可见性";
+    const pubSel = document.createElement("select");
+    pubSel.className = "edit-input";
+    const optPub = document.createElement("option");
+    optPub.value = "true";
+    optPub.textContent = "公开（角色已知，自动注入）";
+    const optHid = document.createElement("option");
+    optHid.value = "false";
+    optHid.textContent = "隐藏（角色未知，Agent 可揭示）";
+    pubSel.appendChild(optPub);
+    pubSel.appendChild(optHid);
+    pubSel.value = "true";
+    pubRow.appendChild(pubLab);
+    pubRow.appendChild(pubSel);
+    div.appendChild(pubRow);
+    const enRow = document.createElement("div");
+    enRow.className = "form-row";
+    const enLab = document.createElement("label");
+    enLab.textContent = "启用关键词注入 ";
+    const enChk = document.createElement("input");
+    enChk.type = "checkbox";
+    enChk.checked = true;
+    enLab.appendChild(enChk);
+    enRow.appendChild(enLab);
+    div.appendChild(enRow);
+    const btnRow = document.createElement("div");
+    btnRow.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:8px;";
+    const saveBtn = document.createElement("button");
+    saveBtn.textContent = "保存";
+    saveBtn.style.cssText = "background:#2b3a55;color:#e8f0ff;border:none;border-radius:6px;padding:5px 14px;cursor:pointer;";
+    saveBtn.addEventListener("click", async () => {
+        const keys = keysTa.value.split(/[,，]/).map((s) => s.trim()).filter(Boolean);
+        const content = contentTa.value.trim();
+        if (!keys.length || !content) {
+            alert("关键词和内容不能为空");
+            return;
+        }
+        const res = await fetch("/api/worldinfo", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ keys, content, public: pubSel.value === "true", enabled: enChk.checked }),
+        });
+        if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            alert(d.error || "保存失败");
+            return;
+        }
+        await refreshState();
+    });
+    const cancelBtn = document.createElement("button");
+    cancelBtn.textContent = "取消";
+    cancelBtn.style.cssText = "background:none;border:1px solid #3a3f47;color:#9aa3b2;border-radius:6px;padding:5px 14px;cursor:pointer;";
+    cancelBtn.addEventListener("click", () => refreshState());
+    btnRow.appendChild(cancelBtn);
+    btnRow.appendChild(saveBtn);
+    div.appendChild(btnRow);
+    list.appendChild(div);
+}
+
+// ---------- 操作 ----------
+let mode = "ic"; // ic = 角色对话, ooc = Agent 对话
+
+// 清理类指令：本地系统操作，不经过 AI（避免模型对设定的审计拒绝）
+const CLEAR_PATTERNS = [
+    /^\/reset$/i,
+    /^(清理|清空)(对话历史|对话|历史|聊天记录|消息)(.*)$/,
+    /^(重置|重新开始)(对话|当前对话)?(.*)$/,
+];
+
+async function send() {
+    const input = $("input");
+    const content = input.value.trim();
+    if (!content || generating) return;
+    // 本地拦截：清理类指令直接调 /api/reset
+    if (CLEAR_PATTERNS.some((p) => p.test(content))) {
+        input.value = "";
+        input.style.height = "auto";
+        await refreshState(); // 先与服务端同步当前角色，避免清错角色
+        const target = mode === "ooc" ? "Agent 对话" : "角色对话";
+        const who = state?.character?.name || "当前角色";
+        if (!confirm(`清理「${who}」的${target}历史？将回到开场场景并重置世界状态（角色卡保留）。`)) return;
+        const res = await fetch(mode === "ooc" ? "/api/ooc/reset" : "/api/reset", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ characterId: state?.character?.id }),
+        });
+        if (!res.ok) {
+            const d = await res.json().catch(() => ({}));
+            showError(d.error || "清理失败");
+            return;
+        }
+        await loadHistory();
+        showNotice(`已清理「${who}」的${target}历史（本地操作，未经过 AI）`);
+        return;
+    }
+    input.value = "";
+    input.style.height = "auto";
+    // 清空后界面上的空提示要随第一条新消息移除
+    const hintEl = box.querySelector(".empty-hint");
+    if (hintEl) hintEl.remove();
+    const userMsgEl = renderMessage({ role: "user", content, ooc: mode === "ooc" });
+    box.appendChild(userMsgEl);
+    scrollBottom();
+
+    const wrap = document.createElement("div");
+    wrap.className = "msg mes assistant";
+    const col = document.createElement("div");
+    col.className = "mes_block";
+    const head = document.createElement("div");
+    head.className = "ch_name";
+    const name = document.createElement("span");
+    name.className = "name_text";
+    name.textContent = mode === "ooc" ? "⚙ Agent" : (state?.character?.name || "角色");
+    head.appendChild(name);
+    col.appendChild(head);
+    const bubble = document.createElement("div");
+    bubble.className = "mes_text";
+    col.appendChild(bubble);
+    wrap.appendChild(col);
+    box.appendChild(wrap);
+    scrollBottom();
+
+    generating = true;
+    $("send").textContent = "⏹ 停止";
+    $("send").disabled = false;
+    try {
+        const res = await fetch(mode === "ooc" ? "/api/ooc" : "/api/chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ content }),
+        });
+        await streamFromResponse(res, col, bubble);
+        // 用服务端返回的真实消息 ID 替换乐观渲染的用户消息，保证编辑/删除按钮可用
+        try {
+            const h = await (await fetch(`/api/history?mode=${mode}`)).json();
+            const found = [...h.messages].reverse().find((m) => m.role === "user" && m.content === content);
+            if (found && found.id) userMsgEl.replaceWith(renderMessage(found));
+        } catch { /* 保持乐观消息 */ }
+    } catch (e) {
+        bubble.textContent = "⚠ 请求失败: " + e.message;
+    }
+    generating = false;
+    $("send").textContent = "发送";
+    $("send").disabled = false;
+    scrollBottom();
+}
+
+async function regenerate(id) {
+    if (generating) return;
+    generating = true;
+    $("send").textContent = "⏹ 停止";
+    $("send").disabled = false;
+    let res;
+    try {
+        const url = id.startsWith("ooc-")
+            ? `/api/ooc/messages/${Number(id.split("-")[1])}/regenerate`
+            : `/api/messages/${id}/regenerate`;
+        res = await fetch(url, { method: "POST" });
+    } catch (e) {
+        generating = false;
+        $("send").textContent = "发送";
+        $("send").disabled = false;
+        return;
+    }
+    await loadHistory();
+    const wrap = document.createElement("div");
+    wrap.className = "msg mes assistant";
+    const col = document.createElement("div");
+    col.className = "mes_block";
+    const head = document.createElement("div");
+    head.className = "ch_name";
+    const name = document.createElement("span");
+    name.className = "name_text";
+    name.textContent = mode === "ooc" ? "⚙ Agent" : (state?.character?.name || "角色");
+    head.appendChild(name);
+    col.appendChild(head);
+    const bubble = document.createElement("div");
+    bubble.className = "mes_text";
+    col.appendChild(bubble);
+    wrap.appendChild(col);
+    box.appendChild(wrap);
+    scrollBottom();
+    try {
+        await streamFromResponse(res, col, bubble);
+    } catch (e) {
+        bubble.textContent = "⚠ 请求失败: " + e.message;
+    }
+    generating = false;
+    $("send").textContent = "发送";
+    $("send").disabled = false;
+    scrollBottom();
+}
+
+async function del(id) {
+    if (generating) return;
+    if (!confirm("删除该消息及其后的所有消息？")) return;
+    if (id.startsWith("ooc-")) {
+        await fetch(`/api/ooc/messages/${Number(id.split("-")[1])}/delete`, { method: "POST" });
+    } else {
+        await fetch(`/api/messages/${id}/delete`, { method: "POST" });
+    }
+    await loadHistory();
+}
+
+function editMessage(m) {
+    if (generating) return;
+    const target = [...document.querySelectorAll(".msg.mes.user")].find((el) => el.dataset.msgId === m.id);
+    if (!target) return;
+    const bubble = target.querySelector(".mes_text");
+    const textarea = document.createElement("textarea");
+    textarea.className = "edit-input";
+    textarea.value = m.content;
+    bubble.replaceWith(textarea);
+    textarea.focus();
+    textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    const finish = async (save) => {
+        if (save) {
+            const content = textarea.value.trim();
+            if (content && content !== m.content) {
+                const url = m.ooc
+                    ? `/api/ooc/messages/${Number(m.id.split("-")[1])}/edit`
+                    : `/api/messages/${m.id}/edit`;
+                const res = await fetch(url, {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ content }),
+                });
+                if (res.ok) {
+                    await loadHistory();
+                    return;
+                }
+            }
+        }
+        await loadHistory();
+    };
+    textarea.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); finish(true); }
+        else if (e.key === "Escape") { finish(false); }
+    });
+    textarea.addEventListener("blur", () => finish(false));
+}
+
+async function stop() {
+    try { await fetch("/api/stop", { method: "POST" }); } catch { }
+}
+
+function fillPersonaForm(p) {
+    $("p_name").value = p.name || "";
+    $("p_description").value = p.description || "";
+    $("p_personality").value = p.personality || "";
+    $("p_notes").value = p.notes || "";
+}
+
+// ---------- 拖拽防误触（maskClose 定义，须在使用前） ----------
+let suppressMaskClose = false;
+let draggingModal = false;
+let lastModalDragEnd = 0;
+document.querySelectorAll(".modal").forEach((m) => {
+    m.addEventListener("mousedown", () => {
+        suppressMaskClose = true;
+        setTimeout(() => { suppressMaskClose = false; }, 500);
+    });
+});
+const maskClose = (maskId) => (e) => {
+    if (e.target === $(maskId) && !suppressMaskClose && !draggingModal && Date.now() - lastModalDragEnd > 300) {
+        $(maskId).classList.remove("open");
+    }
+};
+
+// ---------- 设置事件 ----------
+function fillModelSelect(models, current) {
+    const sel = $("cfgModel");
+    sel.innerHTML = "";
+    const customOpt = document.createElement("option");
+    customOpt.value = "__custom__";
+    customOpt.textContent = "自定义…";
+    sel.appendChild(customOpt);
+    const add = (id) => {
+        if (id && ![...sel.options].some((o) => o.value === id)) {
+            const o = document.createElement("option");
+            o.value = id;
+            o.textContent = id;
+            sel.appendChild(o);
+        }
+    };
+    (models || []).forEach(add);
+    if (current && current !== "__custom__") add(current);
+    const list = [...sel.options].map((o) => o.value);
+    if (current && current !== "__custom__" && list.includes(current)) {
+        sel.value = current;
+        $("cfgModelCustom").style.display = "none";
+        $("cfgModelCustom").value = "";
+    } else if (current && current !== "__custom__") {
+        sel.value = "__custom__";
+        $("cfgModelCustom").value = current;
+        $("cfgModelCustom").style.display = "block";
+    } else {
+        sel.value = (models && models.length) ? models[0] : "";
+        $("cfgModelCustom").style.display = "none";
+    }
+}
+async function fetchModels() {
+    try {
+        return (await (await fetch("/api/models")).json()).models || [];
+    } catch {
+        return [];
+    }
+}
+async function loadApiProfiles() {
+    try {
+        const d = await (await fetch("/api/api-profiles")).json();
+        const sel = $("cfgProfile");
+        sel.innerHTML = "";
+        (d.profiles || []).forEach((p) => {
+            const o = document.createElement("option");
+            o.value = p.id;
+            o.textContent = p.name;
+            sel.appendChild(o);
+        });
+        const dsel = $("cfgDirectorProfile");
+        const prevDir = dsel.value;
+        dsel.innerHTML = '<option value="">跟随当前配置</option>';
+        (d.profiles || []).forEach((p) => {
+            const o = document.createElement("option");
+            o.value = p.id;
+            o.textContent = p.name;
+            dsel.appendChild(o);
+        });
+        dsel.value = prevDir;
+        sel.value = d.active || "";
+        const p = (d.profiles || []).find((x) => x.id === d.active);
+        if (p) {
+            $("cfgProfileName").value = p.name || "";
+            $("cfgBaseUrl").value = p.baseUrl || "";
+            $("cfgApiKey").value = p.apiKey || "";
+            $("cfgShowKey").checked = false;
+            $("cfgApiKey").type = "password";
+            $("cfgThinking").value = p.thinking || "high";
+            fillModelSelect(await fetchModels(), p.modelId || "");
+        }
+        return d;
+    } catch {
+        return null;
+    }
+}
+async function loadDirectorConfig() {
+    try {
+        const d = await (await fetch("/api/director-config")).json();
+        const c = d.config || {};
+        $("cfgDirectorEnable").checked = c.enabled !== false;
+        $("cfgDirectorProfile").value = c.profileId || "";
+        $("cfgDirectorModel").value = c.modelId || "";
+        $("cfgDirectorThinking").value = c.thinking || "off";
+    } catch { /* 保持现状 */ }
+}
+let promptDefaults = {};
+async function loadPrompts() {
+    try {
+        const d = await (await fetch("/api/prompts")).json();
+        const p = d.prompts || {};
+        promptDefaults = d.defaults || {};
+        $("cfgPromptOoc").value = p.oocAgent || promptDefaults.oocAgent || "";
+        $("cfgPromptManager").value = p.manager || promptDefaults.manager || "";
+        $("cfgPromptDirector").value = p.director || promptDefaults.director || "";
+    } catch { /* 保持现状 */ }
+}
+async function refreshModels() {
+    try {
+        const d = await (await fetch("/api/models")).json();
+        const sel = $("cfgModel");
+        const current = sel.value === "__custom__" ? $("cfgModelCustom").value.trim() : sel.value;
+        fillModelSelect(d.models || [], current || "");
+        $("cfgModelMsg").textContent = `已获取 ${(d.models || []).length} 个模型`;
+        setTimeout(() => { $("cfgModelMsg").textContent = ""; }, 2000);
+    } catch {
+        $("cfgModelMsg").textContent = "获取失败，可直接选择自定义";
+    }
+}
+$("settingsBtn").addEventListener("click", async () => {
+    $("setShowStats").checked = settings.showStats;
+    $("setAutoWorld").checked = settings.autoWorld;
+    $("setAutoAgent").checked = settings.autoAgent;
+    if (state && state.settings) {
+        $("setEvoMode").value = state.settings.evolutionMode || "balanced";
+        $("setEvoDir").value = state.settings.evolutionDirection || "";
+        $("setEvoInterval").value = String(state.settings.advanceInterval || 3);
+    }
+    await loadApiProfiles();
+    await loadDirectorConfig();
+    await loadPrompts();
+    $("settingsModal").classList.add("open");
+});
+$("settingsCloseBtn").addEventListener("click", () => $("settingsModal").classList.remove("open"));
+$("settingsModal").addEventListener("click", maskClose("settingsModal"));
+$("setShowStats").addEventListener("change", (e) => {
+    settings.showStats = e.target.checked;
+    saveSettings();
+    loadHistory(); // 立即刷新统计条显示
+});
+$("setAutoWorld").addEventListener("change", (e) => {
+    settings.autoWorld = e.target.checked;
+    saveSettings();
+});
+$("setAutoAgent").addEventListener("change", (e) => {
+    settings.autoAgent = e.target.checked;
+    saveSettings();
+});
+$("setEvoSave").addEventListener("click", async () => {
+    const btn = $("setEvoSave");
+    btn.disabled = true;
+    try {
+        const res = await fetch("/api/settings", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+                evolutionMode: $("setEvoMode").value,
+                evolutionDirection: $("setEvoDir").value.trim(),
+                advanceInterval: Number($("setEvoInterval").value),
+            }),
+        });
+        if (res.ok) {
+            $("setEvoMsg").textContent = "已保存 ✓";
+            setTimeout(() => { $("setEvoMsg").textContent = ""; }, 1500);
+            await refreshState();
+        }
+    } catch (e) {
+        alert("保存失败：" + e.message);
+    }
+    btn.disabled = false;
+});
+$("refreshModelsBtn").addEventListener("click", refreshModels);
+$("cfgShowKey").addEventListener("change", (e) => {
+    $("cfgApiKey").type = e.target.checked ? "text" : "password";
+});
+$("cfgProfile").addEventListener("change", async () => {
+    const id = $("cfgProfile").value;
+    if (!id) return;
+    await fetch(`/api/api-profiles/${id}/activate`, { method: "POST" });
+    await loadApiProfiles();
+});
+$("profileNewBtn").addEventListener("click", async () => {
+    const name = prompt("新配置名称：", "新配置");
+    if (name === null) return;
+    const baseUrl = $("cfgBaseUrl").value.trim();
+    if (!baseUrl) {
+        alert("请先填写 API Base URL");
+        return;
+    }
+    const modelId = ($("cfgModel").value === "__custom__" ? $("cfgModelCustom").value : $("cfgModel").value).trim();
+    const res = await fetch("/api/api-profiles", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+            name: name.trim() || "新配置",
+            baseUrl,
+            apiKey: $("cfgApiKey").value.trim(),
+            modelId,
+            thinking: $("cfgThinking").value,
+        }),
+    });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "新建失败");
+        return;
+    }
+    await loadApiProfiles();
+    showNotice("已新建并切换到新配置");
+});
+$("profileDelBtn").addEventListener("click", async () => {
+    const id = $("cfgProfile").value;
+    if (!id) return;
+    if (!confirm("删除该 API 配置？")) return;
+    const res = await fetch(`/api/api-profiles/${id}/delete`, { method: "POST" });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "删除失败");
+        return;
+    }
+    await loadApiProfiles();
+});
+$("cfgModel").addEventListener("change", () => {
+    const custom = $("cfgModel").value === "__custom__";
+    $("cfgModelCustom").style.display = custom ? "block" : "none";
+    if (custom) $("cfgModelCustom").focus();
+});
+$("cfgModelSave").addEventListener("click", async () => {
+    const baseUrl = $("cfgBaseUrl").value.trim();
+    if (!baseUrl) {
+        alert("API Base URL 不能为空");
+        return;
+    }
+    const modelId = ($("cfgModel").value === "__custom__" ? $("cfgModelCustom").value : $("cfgModel").value).trim();
+    if (!modelId) {
+        alert("模型 ID 不能为空");
+        return;
+    }
+    const res = await fetch("/api/model-config", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+            name: $("cfgProfileName").value.trim(),
+            baseUrl,
+            apiKey: $("cfgApiKey").value.trim(),
+            modelId,
+            thinking: $("cfgThinking").value,
+        }),
+    });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "保存失败");
+        return;
+    }
+    $("cfgModelMsg").textContent = "已保存 ✓";
+    setTimeout(() => { $("cfgModelMsg").textContent = ""; }, 1500);
+    await loadApiProfiles();
+    await loadHistory(); // 刷新顶部模型/思考显示
+    await refreshState();
+});
+$("cfgDirectorSave").addEventListener("click", async () => {
+    const res = await fetch("/api/director-config", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+            enabled: $("cfgDirectorEnable").checked,
+            profileId: $("cfgDirectorProfile").value,
+            modelId: $("cfgDirectorModel").value.trim(),
+            thinking: $("cfgDirectorThinking").value,
+        }),
+    });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "保存失败");
+        return;
+    }
+    $("cfgDirectorMsg").textContent = "已保存 ✓";
+    setTimeout(() => { $("cfgDirectorMsg").textContent = ""; }, 1500);
+});
+$("cfgPromptSave").addEventListener("click", async () => {
+    const res = await fetch("/api/prompts", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+            oocAgent: $("cfgPromptOoc").value,
+            manager: $("cfgPromptManager").value,
+            director: $("cfgPromptDirector").value,
+        }),
+    });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        alert(d.error || "保存失败");
+        return;
+    }
+    $("cfgPromptMsg").textContent = "已保存 ✓（下次调用生效）";
+    setTimeout(() => { $("cfgPromptMsg").textContent = ""; }, 2000);
+});
+$("cfgPromptReset").addEventListener("click", async () => {
+    if (!confirm("还原三套提示词为内置默认？")) return;
+    $("cfgPromptOoc").value = promptDefaults.oocAgent || "";
+    $("cfgPromptManager").value = promptDefaults.manager || "";
+    $("cfgPromptDirector").value = promptDefaults.director || "";
+    $("cfgPromptSave").click();
+});
+
+// ---------- 面板事件 ----------
+
+$("personaBtn").addEventListener("click", () => { refreshState(); $("personaModal").classList.add("open"); });
+$("personaCloseBtn").addEventListener("click", () => $("personaModal").classList.remove("open"));
+$("personaModal").addEventListener("click", maskClose("personaModal"));
+$("personaSaveBtn").addEventListener("click", async () => {
+    const btn = $("personaSaveBtn");
+    const oldText = btn.textContent;
+    btn.textContent = "保存中…";
+    btn.disabled = true;
+    try {
+        const res = await fetch("/api/persona", {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+                name: $("p_name").value.trim(),
+                description: $("p_description").value.trim(),
+                personality: $("p_personality").value.trim(),
+                notes: $("p_notes").value.trim(),
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            alert("保存失败：" + (data.error || res.status));
+            return;
+        }
+        await refreshState();
+        btn.textContent = "已保存 ✓";
+        setTimeout(() => { btn.textContent = oldText; btn.disabled = false; }, 1200);
+        showNotice("用户角色已更新（对话中的设定同步刷新）");
+    } catch (e) {
+        alert("保存失败：" + e.message);
+        btn.textContent = oldText;
+        btn.disabled = false;
+    }
+});
+$("charBtn").addEventListener("click", () => { refreshState(); $("charModal").classList.add("open"); });
+$("charCloseBtn").addEventListener("click", () => $("charModal").classList.remove("open"));
+$("charModal").addEventListener("click", maskClose("charModal"));
+$("charSaveBtn").addEventListener("click", async () => {
+    if (!state || !state.character) {
+        alert("角色状态未加载，请稍后重试");
+        return;
+    }
+    const btn = $("charSaveBtn");
+    const oldText = btn.textContent;
+    btn.textContent = "保存中…";
+    btn.disabled = true;
+    try {
+        const res = await fetch(`/api/characters/${state.character.id}`, {
+            method: "PUT",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(currentFormCard()),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            alert("保存失败：" + (data.error || res.status));
+            return;
+        }
+        await refreshState();
+        await loadHistory();
+        btn.textContent = "已保存 ✓";
+        setTimeout(() => { btn.textContent = oldText; }, 1200);
+    } catch (e) {
+        alert("保存失败：" + e.message);
+        btn.textContent = oldText;
+        btn.disabled = false;
+    }
+});
+$("charNewBtn").addEventListener("click", async () => {
+    const name = prompt("新角色名称：", "新角色");
+    if (!name) return;
+    const res = await fetch("/api/characters", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, description: "", personality: "", scenario: "", world: "", rules: [] }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.id) {
+        alert("新建失败：" + (data.error || res.status));
+        return;
+    }
+    const loadRes = await fetch(`/api/characters/${data.id}/load`, { method: "POST" });
+    if (!loadRes.ok) {
+        alert("切换失败");
+        return;
+    }
+    await refreshState();
+    await loadHistory();
+});
+$("charDelBtn").addEventListener("click", async () => {
+    if (!state || !state.character) return;
+    if (!confirm("删除当前角色卡？\n（其世界书与会话将一并删除）")) return;
+    const res = await fetch(`/api/characters/${state.character.id}/delete`, { method: "POST" });
+    if (!res.ok) { alert("删除失败"); return; }
+    await refreshState();
+    await loadHistory();
+});
+$("charSelect").addEventListener("change", async (e) => {
+    await fetch(`/api/characters/${e.target.value}/load`, { method: "POST" });
+    await refreshState();
+    await loadHistory();
+});
+
+// ---------- ST 角色卡导入 ----------
+$("importBtn").addEventListener("click", () => $("importFile").click());
+$("importFile").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!confirm(`导入 ST 角色卡「${file.name}」？\n（将创建新角色并切换到它，世界书条目一并导入）`)) return;
+    const reader = new FileReader();
+    reader.onload = async () => {
+        const base64 = String(reader.result).split(",")[1];
+        try {
+            const res = await fetch("/api/import/stcard", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ base64, load: true }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                alert("导入失败：" + (data.error || "未知错误"));
+                return;
+            }
+            alert(`导入成功：${data.name}\n世界书条目：${data.importedWorldInfo} 条`);
+            await refreshState();
+            await loadHistory();
+        } catch (err) {
+            alert("导入失败：" + err.message);
+        }
+    };
+    reader.readAsDataURL(file);
+});
+
+$("wiBtn").addEventListener("click", () => { refreshState(); $("wiModal").classList.add("open"); });
+$("wiCloseBtn").addEventListener("click", () => $("wiModal").classList.remove("open"));
+$("wiModal").addEventListener("click", maskClose("wiModal"));
+$("wiNewBtn").addEventListener("click", addWorldInfo);
+
+// ---------- 聊天栏宽度拖拽调整（记忆到本地） ----------
+(function initChatResize() {
+    const shell = document.getElementById("chatShell");
+    const handle = document.getElementById("chatResize");
+    if (!shell || !handle) return;
+    const saved = localStorage.getItem("rp-chat-width");
+    if (saved) shell.style.setProperty("--chatWidth", saved + "px");
+    let dragging = false;
+    let startX = 0;
+    let startW = 0;
+    handle.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        dragging = true;
+        startX = e.clientX;
+        startW = shell.getBoundingClientRect().width;
+        handle.classList.add("dragging");
+        document.body.style.userSelect = "none";
+    });
+    window.addEventListener("mousemove", (e) => {
+        if (!dragging) return;
+        const w = Math.min(1400, Math.max(480, startW + (e.clientX - startX)));
+        shell.style.setProperty("--chatWidth", w + "px");
+    });
+    window.addEventListener("mouseup", () => {
+        if (!dragging) return;
+        dragging = false;
+        handle.classList.remove("dragging");
+        document.body.style.userSelect = "";
+        localStorage.setItem("rp-chat-width", String(Math.round(shell.getBoundingClientRect().width)));
+    });
+})();
+
+// ---------- 子窗口（模态框）缩放：与聊天栏相同的右缘拖拽调宽 ----------
+(function initModalResize() {
+    document.querySelectorAll(".modal").forEach((modal) => {
+        const handle = document.createElement("div");
+        handle.className = "modal-resize";
+        modal.appendChild(handle);
+        const key = "rp-modal-width-" + (modal.id || Math.random().toString(36).slice(2));
+        const saved = localStorage.getItem(key);
+        if (saved) modal.style.width = saved + "px";
+        let dragging = false;
+        let startX = 0;
+        let startW = 0;
+        handle.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            dragging = true;
+            draggingModal = true;
+            startX = e.clientX;
+            startW = modal.getBoundingClientRect().width;
+            handle.classList.add("dragging");
+            document.body.style.userSelect = "none";
+        });
+        window.addEventListener("mousemove", (e) => {
+            if (!dragging) return;
+            const max = window.innerWidth * 0.92;
+            const w = Math.min(max, Math.max(380, startW + (e.clientX - startX)));
+            modal.style.width = w + "px";
+        });
+        window.addEventListener("mouseup", () => {
+            if (!dragging) return;
+            dragging = false;
+            draggingModal = false;
+            lastModalDragEnd = Date.now();
+            handle.classList.remove("dragging");
+            document.body.style.userSelect = "";
+            localStorage.setItem(key, String(Math.round(modal.getBoundingClientRect().width)));
+        });
+    });
+})();
+
+// ---------- 聊天事件 ----------
+$("modeBtn").addEventListener("click", async () => {
+    mode = mode === "ic" ? "ooc" : "ic";
+    $("modeBtn").textContent = mode === "ooc" ? "⚙ Agent" : "🎭 角色";
+    $("input").placeholder = mode === "ooc"
+        ? "⚙ Agent 对话：改设定 / 管世界书 / 世界演化 / 搜索 / 问答…（Enter 发送）"
+        : "输入故事指令…（Enter 发送，Shift+Enter 换行）";
+    $("agentHint").style.display = mode === "ooc" ? "block" : "none";
+    $("input").focus();
+    await loadHistory(); // 切换显示对应的对话记录
+    showNotice(mode === "ooc" ? "⚙ Agent 对话记录" : "🎭 角色对话记录");
+});
+$("hintToggle").addEventListener("click", () => {
+    const d = $("hintDetail");
+    const open = d.style.display === "block";
+    d.style.display = open ? "none" : "block";
+    $("hintToggle").textContent = open ? "展开可用工具 ▸" : "收起工具列表 ▾";
+});
+$("send").addEventListener("click", () => { if (generating) stop(); else send(); });
+$("input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+$("input").addEventListener("input", () => {
+    $("input").style.height = "auto";
+    $("input").style.height = Math.min($("input").scrollHeight, 160) + "px";
+});
+$("resetBtn").addEventListener("click", async () => {
+    if (generating) return;
+    await refreshState(); // 先与服务端同步当前角色，避免清错角色
+    const target = mode === "ooc" ? "Agent 对话" : "角色对话";
+    const who = state?.character?.name || "当前角色";
+    if (!confirm(`清理「${who}」的${target}历史？将回到开场场景并重置世界状态（角色卡保留）。`)) return;
+    const res = await fetch(mode === "ooc" ? "/api/ooc/reset" : "/api/reset", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ characterId: state?.character?.id }),
+    });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        showError(d.error || "清理失败");
+        return;
+    }
+    await loadHistory();
+    showNotice(`已清理「${who}」的${target}历史`);
+});
+
+loadHistory();
+refreshState();
+</script>
+</body>
+</html>

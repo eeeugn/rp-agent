@@ -1,0 +1,21 @@
+{
+  "name": "rp-demo",
+  "version": "1.0.0",
+  "description": "",
+  "main": "rp-server.ts",
+  "scripts": {
+    "mock": "node --experimental-strip-types scripts/mock-llm.ts",
+    "start": "node --experimental-strip-types rp-agent.ts",
+    "web": "node --experimental-strip-types rp-server.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.84.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.10"
+  },
+  "type": "module"
+}
